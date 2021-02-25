@@ -1,5 +1,6 @@
 package ru.bayramov.hashcodeservice.service.generator;
 
+import com.google.common.collect.MapMaker;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -9,6 +10,8 @@ import ru.bayramov.hashcodeservice.repository.StringHashCodeRepository;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.WeakHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -17,8 +20,7 @@ import java.util.concurrent.locks.ReentrantLock;
 @Slf4j
 public class StringHashCodeGenerator implements HashCodeGenerator {
     private final StringHashCodeRepository stringHashCodeRepository;
-    private final Map<String, Lock> stringLockMap = new HashMap<>();
-    private final Map<String, Integer> stringAliveWaitersCountMap = new HashMap<>();
+    private final ConcurrentMap<String, Lock> stringLockMap = new MapMaker().weakValues().makeMap();
 
     @Override
     public int generate(String type, Object data) throws InterruptedException {
@@ -38,11 +40,9 @@ public class StringHashCodeGenerator implements HashCodeGenerator {
             if (stringLockMap.get(s) == null) {
                 stringLockMap.put(s, new ReentrantLock());
                 lock = stringLockMap.get(s);
-                stringAliveWaitersCountMap.put(s, 1);
                 lock.lock();
                 master = true;
             } else {
-                stringAliveWaitersCountMap.put(s, stringAliveWaitersCountMap.get(s) + 1);
                 lock = stringLockMap.get(s);
             }
         }
@@ -54,12 +54,7 @@ public class StringHashCodeGenerator implements HashCodeGenerator {
         } else {
             lock.lock();
         }
-        stringAliveWaitersCountMap.put(s, stringAliveWaitersCountMap.get(s) - 1);
-        if (stringAliveWaitersCountMap.get(s) == 0) {
-            stringAliveWaitersCountMap.remove(s);
-        } else {
-            lock.unlock();
-        }
+        lock.unlock();
 
         return stringHashCodeRepository.findById(s).get().getHashCode();
     }
